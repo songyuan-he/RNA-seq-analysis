@@ -1,51 +1,100 @@
-# RNA-seq Analysis Workflow
+# RNA-seq Differential Expression Analysis
 
-Course projects for *Genomics & Bioinformatics* — differential expression analysis and functional enrichment from RNA-seq count data.
+Course project for **Genomics & Bioinformatics** (Southwest University) —
+full RNA-seq differential expression and functional enrichment pipeline
+using **DESeq2** and **clusterProfiler** on a *Saccharomyces cerevisiae*
+(budding yeast) dataset.
 
-## Contents
+## Project Goals
 
-### 1. DESeq2 Differential Expression (`DESeq2_workflow.R`)
-- Reads count matrix and sample metadata
-- Validates sample-to-column alignment
-- Prepares data for DESeq2-based differential expression analysis
+- Demonstrate proficiency in the core RNA-seq analysis workflow:
+  count matrix processing → differential expression → functional enrichment
+- Apply statistical best practices: normalisation (median-of-ratios),
+  variance-stabilising transformation (VST), FDR correction (Benjamini–Hochberg)
+- Produce publication-quality visualisations: volcano plot, MA plot,
+  heatmap, PCA, GO dotplots
+- Deliver reproducible analysis via R Markdown
 
-### 2. GO Enrichment Analysis (`GO_enrichment.R`)
-- Performs Gene Ontology enrichment for yeast (*Saccharomyces cerevisiae*) differentially expressed genes
-- Covers all three GO categories: Biological Process (BP), Cellular Component (CC), Molecular Function (MF)
-- Extracts top 10 most significant terms per category
-- Exports formatted CSV ready for downstream visualization
-
-**Key packages:** `clusterProfiler` · `org.Sc.sgd.db` · `dplyr`
-
-### 3. Expression Visualization (see `DESeq2_workflow.R`)
-- Wide-to-long format transformation of count matrices (tidyr pivot_longer)
-- Faceted scatter plots of gene expression across samples
-- Custom ggplot2 themes with full label formatting
-
-## Files
+## Repository Structure
 
 ```
 .
-├── DESeq2_workflow.R           # DESeq2 setup + expression visualization
-├── GO_enrichment.R             # clusterProfiler GO enrichment
+├── RNAseq_analysis.Rmd       # Main analysis notebook (R Markdown)
 ├── data/
-│   ├── countData.csv           # Raw count matrix (genes × samples)
-│   └── colData.csv             # Sample metadata (condition labels)
-└── README.md
+│   ├── countData.csv          # Raw count matrix (6,420 genes × 4 samples)
+│   └── colData.csv            # Sample metadata (control/treat labels)
+├── README.md
+└── .gitignore
 ```
 
-## Usage
+## Dependencies
+
+| Package            | Repository   | Purpose                              |
+|--------------------|-------------|--------------------------------------|
+| DESeq2             | Bioconductor | Differential expression analysis     |
+| clusterProfiler    | Bioconductor | GO enrichment analysis               |
+| org.Sc.sgd.db      | Bioconductor | *S. cerevisiae* genome annotation    |
+| ggplot2            | CRAN         | Data visualisation                   |
+| pheatmap           | CRAN         | Heatmap plotting                     |
+| dplyr, tidyr       | CRAN         | Data manipulation                    |
+| RColorBrewer       | CRAN         | Colour palettes                      |
+| patchwork          | CRAN         | Multi-panel figure assembly          |
+
+### Install All Dependencies
 
 ```r
-# DESeq2 workflow
-source("DESeq2_workflow.R")
+# CRAN
+install.packages(c("ggplot2", "dplyr", "tidyr", "pheatmap", "RColorBrewer", "patchwork"))
 
-# GO enrichment
-source("GO_enrichment.R")
+# Bioconductor
+if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install(c("DESeq2", "clusterProfiler", "org.Sc.sgd.db"))
 ```
+
+## Quick Start
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/songyuan-he/RNA-seq-analysis.git
+   cd RNA-seq-analysis
+   ```
+
+2. **Open the notebook** in RStudio:
+   ```
+   File → Open File → RNAseq_analysis.Rmd
+   ```
+
+3. **Install dependencies** (see above), then click **Run** → **Run All**
+
+4. **Expected output**: interactive HTML notebook with all figures inline plus
+   `data/GO_enrichment_results.csv` exported to disk.
+
+## Expected Output
+
+The notebook generates:
+
+| Section             | Output                                          |
+|---------------------|-------------------------------------------------|
+| Quality Control     | Density plot of log-count distribution          |
+| Differential Expression | DESeq2 results table, summary of sig. DEGs  |
+| Volcano Plot        | log2FC vs −log10(p), coloured by significance   |
+| MA Plot             | DESeq2 MA plot with FDR threshold                |
+| Heatmap             | Z-score-normalised VST expression (top 30 DEGs) |
+| PCA                 | Sample clustering by principal component        |
+| GO Enrichment       | Top 10 GO terms (BP / CC / MF) dotplots         |
+
+All figures use **colourblind-friendly palettes** (RColorBrewer Set1 /
+RdBu diverging).
 
 ## Notes
 
-- Requires Bioconductor packages: `DESeq2`, `clusterProfiler`, `org.Sc.sgd.db`
-- Count data and metadata must be in the `data/` directory
-- These scripts were developed for coursework and demonstrate core RNA-seq analysis skills
+- This analysis was developed as coursework and demonstrates competency in
+  the DESeq2 → clusterProfiler pipeline for RNA-seq data.
+- The dataset is derived from publicly available *S. cerevisiae* RNA-seq
+  data (SRA accessions SRR10720198–SRR10720205).
+- Output is reproducible: run the notebook with the same package versions
+  (see Session Info at the end of the notebook) to obtain identical results.
+
+## License
+
+This project is for educational and portfolio demonstration purposes.

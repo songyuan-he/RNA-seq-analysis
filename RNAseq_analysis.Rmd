@@ -1,0 +1,303 @@
+---
+title: "RNA-seq Differential Expression Analysis of *Saccharomyces cerevisiae*"
+author: "Songyuan He"
+date: "`r Sys.Date()`"
+output:
+  html_notebook:
+    toc: true
+    toc_float: true
+    theme: flatly
+    code_folding: show
+---
+
+## Project Overview
+
+This notebook demonstrates a complete RNA-seq differential expression analysis
+pipeline applied to a *Saccharomyces cerevisiae* (budding yeast) dataset, as
+part of the **Genomics & Bioinformatics** coursework. The analysis covers the
+full workflow from raw count matrix to functional interpretation.
+
+**Key packages:** `DESeq2` (differential expression), `clusterProfiler`
+(GO enrichment), `ggplot2` (visualisation).
+
+---
+
+## 1. Setup and Dependencies
+
+```{r setup, message=FALSE, warning=FALSE}
+# ── CRAN packages ──
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(pheatmap)
+
+# ── Bioconductor packages ──
+library(DESeq2)
+library(clusterProfiler)
+library(org.Sc.sgd.db)   # S. cerevisiae genome-wide annotation
+library(RColorBrewer)
+
+# ── Session info for reproducibility ──
+Sys.setlocale("LC_ALL", "en_US.UTF-8")
+```
+
+---
+
+## 2. Data Loading
+
+Count matrix and sample metadata are stored under `data/`. The experiment
+compares **two control** versus **two treatment** samples (SRA accessions
+SRR10720198–SRR10720205).
+
+```{r load-data}
+# Read count matrix (genes x samples)
+count_data <- as.matrix(read.csv(
+  file.path("data", "countData.csv"),
+  sep = ",",
+  row.names = "gene_id"
+))
+
+# Read sample metadata
+col_data <- read.csv(
+  file.path("data", "colData.csv"),
+  sep = ",",
+  row.names = 1
+)
+
+# ── Sanity checks ──
+stopifnot(all(rownames(col_data) %in% colnames(count_data)))
+count_data <- count_data[, rownames(col_data)]
+stopifnot(all(rownames(col_data) == colnames(count_data)))
+
+cat(sprintf(
+  "Loaded %d genes × %d samples (%s)\n",
+  nrow(count_data), ncol(count_data),
+  paste(colnames(count_data), collapse = ", ")
+))
+print(col_data)
+```
+
+---
+
+## 3. Quality Control
+
+### 3.1 Count Distribution
+
+```{r qc-count-dist, fig.width=8, fig.height=5}
+count_long <- as.data.frame(count_data) %>%
+  tibble::rownames_to_column("gene_id") %>%
+  tidyr::pivot_longer(-gene_id, names_to = "sample", values_to = "count")
+
+ggplot(count_long, aes(x = count + 1, colour = sample)) +
+  geom_density(linewidth = 1) +
+  scale_x_log10() +
+  labs(
+    title = "Raw count distribution per sample",
+    x = "log10(count + 1)", y = "Density"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+### 3.2 Genes with Zero Counts
+
+```{r qc-zeros}
+zero_fraction <- rowMeans(count_data == 0)
+cat(sprintf(
+  "Genes with zero counts in all samples: %d / %d (%.1f%%)\n",
+  sum(zero_fraction == 1), nrow(count_data),
+  100 * sum(zero_fraction == 1) / nrow(count_data)
+))
+```
+
+---
+
+## 4. DESeq2 Differential Expression
+
+### 4.1 Build DESeq2 Dataset
+
+```{r deseq-setup}
+dds <- DESeqDataSetFromMatrix(
+  countData = count_data,
+  colData   = col_data,
+  design    = ~ type
+)
+
+# Pre-filter: keep genes with ≥ 10 reads total
+dds <- dds[rowSums(counts(dds)) >= 10, ]
+cat(sprintf("Genes retained after pre-filtering: %d\n", nrow(dds)))
+```
+
+### 4.2 Run DESeq2
+
+```{r deseq-run}
+dds <- DESeq(dds)
+
+# Extract results: treat vs control
+res <- results(dds, contrast = c("type", "treat", "control"), alpha = 0.05)
+res <- res[order(res$pvalue), ]
+res <- as.data.frame(res)
+
+# Summary
+summary(res)
+```
+
+```{r deseq-summary-table}
+# Display top 10 DEGs by adjusted p-value
+res_sig <- subset(res, padj < 0.05)
+cat(sprintf(
+  "Differentially expressed genes (padj < 0.05): %d (up: %d, down: %d)\n",
+  nrow(res_sig),
+  sum(res_sig$log2FoldChange > 0, na.rm = TRUE),
+  sum(res_sig$log2FoldChange < 0, na.rm = TRUE)
+))
+knitr::kable(head(res_sig[order(res_sig$padj), ], 10),
+             caption = "Top 10 DEGs by adjusted p-value")
+```
+
+---
+
+## 5. Visualisation
+
+### 5.1 Volcano Plot
+
+```{r volcano, fig.width=8, fig.height=6}
+res_plot <- res
+res_plot$significance <- "Not significant"
+res_plot$significance[res_plot$padj < 0.05 & res_plot$log2FoldChange > 1]  <- "Up"
+res_plot$significance[res_plot$padj < 0.05 & res_plot$log2FoldChange < -1] <- "Down"
+
+ggplot(res_plot, aes(x = log2FoldChange, y = -log10(pvalue), colour = significance)) +
+  geom_point(alpha = 0.5, size = 1.5) +
+  scale_colour_manual(values = c("Up" = "#E64B35", "Down" = "#4DBBD5", "Not significant" = "grey70")) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", colour = "grey40") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", colour = "grey40") +
+  labs(
+    title = "Volcano plot: treat vs control",
+    x = expression(log[2]~fold~change),
+    y = expression(-log[10]~italic(p))
+  ) +
+  theme_bw(base_size = 13) +
+  theme(legend.position = "bottom")
+```
+
+### 5.2 MA Plot
+
+```{r ma-plot, fig.width=8, fig.height=6}
+plotMA(res, alpha = 0.05, main = "MA plot: treat vs control", ylim = c(-5, 5))
+```
+
+### 5.3 Heatmap of Top Differentially Expressed Genes
+
+```{r heatmap, fig.width=8, fig.height=8}
+top_genes <- head(rownames(res_sig[order(res_sig$padj), ]), 30)
+
+# Variance-stabilising transformation for visualisation
+vsd <- vst(dds, blind = FALSE)
+mat <- assay(vsd)[top_genes, ]
+rownames(mat) <- top_genes
+
+# Z-score normalisation per gene
+mat_scaled <- t(scale(t(mat)))
+
+pheatmap(
+  mat_scaled,
+  cluster_rows    = TRUE,
+  cluster_cols    = TRUE,
+  annotation_col  = as.data.frame(colData(dds)["type"]),
+  main            = "Top 30 DEGs (Z-score-normalised VST counts)",
+  color           = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
+  fontsize_row    = 7,
+  border_color    = NA
+)
+```
+
+### 5.4 PCA Plot
+
+```{r pca, fig.width=7, fig.height=6}
+plotPCA(vsd, intgroup = "type") +
+  geom_point(size = 4) +
+  labs(title = "PCA of variance-stabilised transformed counts") +
+  theme_bw(base_size = 13)
+```
+
+---
+
+## 6. Functional Enrichment (clusterProfiler)
+
+Gene Ontology enrichment for differentially expressed genes across all three
+GO categories: Biological Process (BP), Cellular Component (CC), and Molecular
+Function (MF).
+
+```{r go-enrichment, fig.width=10, fig.height=7}
+sig_genes <- rownames(res_sig)
+
+go_bp <- enrichGO(
+  gene          = sig_genes,
+  OrgDb         = org.Sc.sgd.db,
+  keyType       = "ORF",
+  ont           = "BP",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.05
+)
+
+go_cc <- enrichGO(
+  gene          = sig_genes,
+  OrgDb         = org.Sc.sgd.db,
+  keyType       = "ORF",
+  ont           = "CC",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.05
+)
+
+go_mf <- enrichGO(
+  gene          = sig_genes,
+  OrgDb         = org.Sc.sgd.db,
+  keyType       = "ORF",
+  ont           = "MF",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.05
+)
+
+# ── Dotplot of top 10 terms per category ──
+go_list <- list(BP = go_bp, CC = go_cc, MF = go_mf)
+go_list <- go_list[!sapply(go_list, is.null)]
+
+if (length(go_list) > 0) {
+  dotplot_list <- lapply(names(go_list), function(ont) {
+    go_res <- go_list[[ont]]
+    if (!is.null(go_res)) {
+      p <- dotplot(go_res, showCategory = 10, title = ont)
+      p + theme_bw(base_size = 11)
+    }
+  })
+  patchwork::wrap_plots(dotplot_list, ncol = 1)
+}
+```
+
+```{r go-export}
+# Export formatted results
+export_go <- function(go_res, category_label) {
+  if (is.null(go_res)) return(NULL)
+  df <- as.data.frame(go_res)
+  df$Category <- category_label
+  df <- df %>% arrange(p.adjust) %>% head(10)
+  df[, c("Category", "Description", "GeneRatio", "BgRatio", "pvalue", "p.adjust", "Count")]
+}
+
+go_all <- rbind(
+  export_go(go_bp, "Biological Process"),
+  export_go(go_cc, "Cellular Component"),
+  export_go(go_mf, "Molecular Function")
+)
+write.csv(go_all, file.path("data", "GO_enrichment_results.csv"), row.names = FALSE)
+cat("GO enrichment results saved to data/GO_enrichment_results.csv\n")
+```
+
+---
+
+## 7. Session Information
+
+```{r session-info}
+sessionInfo()
+```

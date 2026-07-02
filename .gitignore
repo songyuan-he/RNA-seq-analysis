@@ -1,0 +1,16 @@
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# R Markdown
+*_files/
+*.html
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
